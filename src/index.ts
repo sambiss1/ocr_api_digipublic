@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import imageRouter from './routes/image.routes';
+import identityRouter from './routes/identity.routes';
 
 dotenv.config();
 
@@ -23,6 +24,7 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/images', imageRouter);
+app.use('/api/identity', identityRouter);
 
 // Health check
 app.get('/health', (req, res) => {
