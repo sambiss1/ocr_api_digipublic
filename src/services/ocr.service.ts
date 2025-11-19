@@ -1,5 +1,4 @@
-import { createWorker, PSM, OEM } from 'tesseract.js';
-import sharp from 'sharp';
+import { createWorker } from 'tesseract.js';
 
 interface OCRResult {
   text: string;
@@ -66,73 +65,6 @@ interface VoterCardData {
   rawText: string;
   confidence: number;
 }
-
-/**
- * Preprocess image for better OCR results
- */
-const preprocessImage = async (imageBuffer: Buffer): Promise<Buffer> => {
-  try {
-    return await sharp(imageBuffer)
-      // Convertir en niveaux de gris pour meilleure reconnaissance
-      .greyscale()
-      // Normaliser le contraste (améliore la lisibilité)
-      .normalize()
-      // Augmenter la netteté
-      .sharpen()
-      // Redimensionner à une taille optimale pour OCR (min 1500px de largeur)
-      .resize(2000, null, { 
-        fit: 'inside',
-        withoutEnlargement: true,
-        kernel: sharp.kernel.lanczos3
-      })
-      // Augmenter légèrement le contraste
-      .linear(1.2, -(128 * 1.2) + 128)
-      // Convertir en PNG haute qualité
-      .png({ 
-        quality: 100,
-        compressionLevel: 0
-      })
-      .toBuffer();
-  } catch (error) {
-    console.error('Image preprocessing error:', error);
-    // En cas d'erreur, retourner l'image originale
-    return imageBuffer;
-  }
-};
-
-/**
- * Advanced preprocessing for documents with better contrast
- */
-const preprocessDocumentImage = async (imageBuffer: Buffer): Promise<Buffer> => {
-  try {
-    return await sharp(imageBuffer)
-      // Convertir en niveaux de gris
-      .greyscale()
-      // Augmenter la résolution si trop petite
-      .resize(2400, null, { 
-        fit: 'inside',
-        withoutEnlargement: true,
-        kernel: sharp.kernel.lanczos3
-      })
-      // Normaliser (auto-ajustement du contraste)
-      .normalize()
-      // Augmenter le contraste manuellement
-      .linear(1.3, -(128 * 1.3) + 128)
-      // Netteté forte pour les textes
-      .sharpen({ sigma: 1.5 })
-      // Réduire le bruit
-      .median(2)
-      // PNG sans compression
-      .png({ 
-        quality: 100,
-        compressionLevel: 0
-      })
-      .toBuffer();
-  } catch (error) {
-    console.error('Document preprocessing error:', error);
-    return imageBuffer;
-  }
-};
 
 // Codes provinces RDC
 const PROVINCE_CODES: { [key: string]: string } = {
@@ -240,7 +172,7 @@ const extractChassisNumber = (text: string): string | null => {
 };
 
 /**
- * Extract passport information from text with improved robustness
+ * Extract passport information from text
  */
 const extractPassportData = (text: string): Omit<PassportData, 'rawText' | 'confidence' | 'documentType'> => {
   // Nettoyer le texte
@@ -671,17 +603,11 @@ export const extractTextFromImage = async (imageBuffer: Buffer): Promise<OCRResu
 };
 
 /**
- * Extract passport information from image with preprocessing
+ * Extract passport information from image
  */
 export const extractPassportFromImage = async (imageBuffer: Buffer): Promise<PassportData> => {
   let worker;
   try {
-    console.log('Starting passport extraction with image preprocessing...');
-    
-    // Prétraiter l'image pour améliorer la qualité OCR
-    const preprocessedImage = await preprocessDocumentImage(imageBuffer);
-    console.log('Image preprocessed successfully');
-
     worker = await createWorker('fra+eng', 1, {
       logger: (m) => {
         if (m.status === 'recognizing text') {
@@ -690,19 +616,10 @@ export const extractPassportFromImage = async (imageBuffer: Buffer): Promise<Pas
       },
     });
 
-    // Configuration optimisée pour les passeports
-    await worker.setParameters({
-      tessedit_pageseg_mode: PSM.AUTO, // Automatic page segmentation
-      tessedit_ocr_engine_mode: OEM.LSTM_ONLY, // Neural nets LSTM engine only
-      preserve_interword_spaces: '1',
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/-.,°\' éèêëàâäôöùûüçÉÈÊËÀÂÄÔÖÙÛÜÇ<>',
-    });
-
-    const { data } = await worker.recognize(preprocessedImage);
+    const { data } = await worker.recognize(imageBuffer);
     const rawText = data.text.trim();
 
     console.log('Passport Raw OCR text:', rawText);
-    console.log('OCR Confidence:', data.confidence);
 
     const extractedData = extractPassportData(rawText);
 
@@ -725,17 +642,11 @@ export const extractPassportFromImage = async (imageBuffer: Buffer): Promise<Pas
 };
 
 /**
- * Extract voter card information from image with preprocessing
+ * Extract voter card information from image
  */
 export const extractVoterCardFromImage = async (imageBuffer: Buffer): Promise<VoterCardData> => {
   let worker;
   try {
-    console.log('Starting voter card extraction with image preprocessing...');
-    
-    // Prétraiter l'image pour améliorer la qualité OCR
-    const preprocessedImage = await preprocessDocumentImage(imageBuffer);
-    console.log('Image preprocessed successfully');
-
     worker = await createWorker('fra+eng', 1, {
       logger: (m) => {
         if (m.status === 'recognizing text') {
@@ -744,19 +655,10 @@ export const extractVoterCardFromImage = async (imageBuffer: Buffer): Promise<Vo
       },
     });
 
-    // Configuration optimisée pour les cartes d'électeur
-    await worker.setParameters({
-      tessedit_pageseg_mode: PSM.AUTO, // Automatic page segmentation
-      tessedit_ocr_engine_mode: OEM.LSTM_ONLY, // Neural nets LSTM engine only
-      preserve_interword_spaces: '1',
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/-.,°\' éèêëàâäôöùûüçÉÈÊËÀÂÄÔÖÙÛÜÇ',
-    });
-
-    const { data } = await worker.recognize(preprocessedImage);
+    const { data } = await worker.recognize(imageBuffer);
     const rawText = data.text.trim();
 
     console.log('Voter Card Raw OCR text:', rawText);
-    console.log('OCR Confidence:', data.confidence);
 
     const extractedData = extractVoterCardData(rawText);
 
@@ -779,17 +681,11 @@ export const extractVoterCardFromImage = async (imageBuffer: Buffer): Promise<Vo
 };
 
 /**
- * Extract ID card information from image with preprocessing
+ * Extract ID card information from image
  */
 export const extractIDCardFromImage = async (imageBuffer: Buffer): Promise<IDCardData> => {
   let worker;
   try {
-    console.log('Starting ID card extraction with image preprocessing...');
-    
-    // Prétraiter l'image pour améliorer la qualité OCR
-    const preprocessedImage = await preprocessDocumentImage(imageBuffer);
-    console.log('Image preprocessed successfully');
-
     worker = await createWorker('fra+eng', 1, {
       logger: (m) => {
         if (m.status === 'recognizing text') {
@@ -798,19 +694,10 @@ export const extractIDCardFromImage = async (imageBuffer: Buffer): Promise<IDCar
       },
     });
 
-    // Configuration optimisée pour les cartes d'identité
-    await worker.setParameters({
-      tessedit_pageseg_mode: PSM.AUTO, // Automatic page segmentation
-      tessedit_ocr_engine_mode: OEM.LSTM_ONLY, // Neural nets LSTM engine only
-      preserve_interword_spaces: '1',
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/-.,°\' éèêëàâäôöùûüçÉÈÊËÀÂÄÔÖÙÛÜÇ',
-    });
-
-    const { data } = await worker.recognize(preprocessedImage);
+    const { data } = await worker.recognize(imageBuffer);
     const rawText = data.text.trim();
 
     console.log('ID Card Raw OCR text:', rawText);
-    console.log('OCR Confidence:', data.confidence);
 
     const extractedData = extractIDCardData(rawText);
 
